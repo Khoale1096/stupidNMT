@@ -728,6 +728,8 @@ def parse_args(argv=None):
     model_groups = {}
     model_groups['transformer'] = add_transformer_args(parser)
     model_groups['new_transformer'] = add_new_transformer_args(parser)
+    model_groups['single_learned_pos_emb_transformer'] = add_new_transformer_args(parser)
+    model_groups['multi_learned_pos_emb_transformer'] = add_new_transformer_args(parser)
 
     subparsers = parser.add_subparsers()
     train_parser = subparsers.add_parser('train', help='Train a model')
