@@ -89,3 +89,47 @@ class PositionEmbedding(nn.Module):
         embeddings = device_store[self.dim]
         embedding_store[device] = device_store
         return embeddings[:max_length].unsqueeze(0)
+
+
+class LearnedPositionalEmbedding(nn.Embedding):
+    """
+    Code is adpated from FLOATER paper: https://github.com/xuanqing94/FLOATER
+    This module learns positional embeddings up to a fixed maximum size.
+    Padding ids are ignored by either offsetting based on padding_idx
+    or by setting padding_idx to None and ensuring that the appropriate
+    position ids are passed to the forward function.
+    """
+
+    def __init__(
+            self,
+            num_embeddings: int,
+            embedding_dim: int,
+            padding_idx: int,
+    ):
+        if padding_idx is not None:
+            num_embeddings = num_embeddings + padding_idx + 1
+        super().__init__(num_embeddings, embedding_dim, padding_idx)
+        self.onnx_trace = False
+
+    def forward(self, input, incremental_state=None, positions=None):
+        """Input is expected to be of size [bsz x seqlen]."""
+        assert (
+            (positions is None) or (self.padding_idx is None)
+        ), "If positions is pre-computed then padding_idx should not be set."
+
+        if positions is None:
+            if incremental_state is not None:
+                # positions is the same for every token when decoding a single step
+                # Without the int() cast, it doesn't work in some cases when exporting to ONNX
+                positions = input.data.new(1, 1).fill_(int(self.padding_idx + input.size(1)))
+            else:
+                mask = input.ne(self.padding_idx).int()
+                positions = (torch.cumsum(mask, dim=1).type_as(mask) * mask).long() + self.padding_idx
+        return super().forward(positions)
+
+    def max_positions(self):
+        """Maximum number of supported positions."""
+        if self.padding_idx is not None:
+            return self.num_embeddings - self.padding_idx - 1
+        else:
+            return self.num_embeddings

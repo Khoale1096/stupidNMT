@@ -9,7 +9,7 @@ from torch import nn
 
 from models.new_attention import NewAttention
 from models.attention import MultiHeadedAttention
-from models.embeddings import PositionEmbedding, TokenEmbedding
+from models.embeddings import PositionEmbedding, TokenEmbedding, LearnedPositionalEmbedding
 from models.utils import LabelSmoothingLoss, Translator
 from utils import left_shift, right_shift, triu
 
@@ -261,11 +261,27 @@ class InterleaveLearnedPosEmbTransformer(nn.Module):
         )
         self.position_embedding = PositionEmbedding(config.embedding_size)
         self.num_layers = config.num_layers
-        self.encoder_layer_2_pos_embedding = nn.Embedding(dataset.max_input_length, config.embedding_size)
-        self.encoder_layer_4_pos_embedding = nn.Embedding(dataset.max_input_length, config.embedding_size)
-        self.decoder_layer_2_pos_embedding = nn.Embedding(dataset.max_target_length, config.embedding_size)
-        self.decoder_layer_4_pos_embedding = nn.Embedding(dataset.max_target_length, config.embedding_size)
-
+        
+        encoder_positional_embedding_list = []
+        for i in range(self.num_layers//2):
+            position_embedding_encoder = LearnedPositionalEmbedding(dataset.max_input_length, config.embedding_size, self.padding_idx)
+            nn.init.normal_(position_embedding_encoder.weight, mean=0, std=config.embedding_size ** -0.5)
+            if self.padding_idx is not None:
+                nn.init.constant_(position_embedding_encoder.weight[self.padding_idx], 0)
+            encoder_positional_embedding_list.append(position_embedding_encoder)
+        
+        self.encoder_positional_embeddings = nn.ModuleList(encoder_positional_embedding_list)
+        
+        decoder_positional_embedding_list = []
+        for i in range(self.num_layers//2):
+            position_embedding_decoder = LearnedPositionalEmbedding(dataset.max_target_length, config.embedding_size, self.padding_idx)
+            nn.init.normal_(position_embedding_decoder.weight, mean=0, std=config.embedding_size ** -0.5)
+            if self.padding_idx is not None:
+                nn.init.constant_(position_embedding_decoder.weight[self.padding_idx], 0)
+            decoder_positional_embedding_list.append(position_embedding_decoder)
+        
+        self.decoder_positional_embeddings = nn.ModuleList(decoder_positional_embedding_list)
+        
         self.dropout = nn.Dropout(config.dropout_p, inplace=True)
 
         # Uniq attn attributes
@@ -413,9 +429,9 @@ class InterleaveLearnedPosEmbTransformer(nn.Module):
             encoded = encoder(encoded, i)
             if i < self.num_layers -1:
                 if i % 2 == 0:
-                    encoded['state'] += self.encoder_layer_pos_embed(encoded['state'], i)
+                    encoded['state'] += self.encoder_positional_embeddings[i//2](inputs)
                 else:
-                    encoded['state'] += self.dropout(self.position_embedding(encoded['state']))
+                    encoded['state'] += self.position_embedding(encoded['state'])
 
         return encoded
 
@@ -439,9 +455,9 @@ class InterleaveLearnedPosEmbTransformer(nn.Module):
             decoded = decoder(decoded, encoded, i)
             if i < self.num_layers -1:
                 if i % 2 == 0:
-                    decoded['state'] += self.decoder_layer_pos_embed(decoded['state'], i)
+                    decoded['state'] += self.decoder_positional_embeddings[i//2](targets, True)
                 else:
-                    decoded['state'] += self.dropout(self.position_embedding(decoded['state']))
+                    decoded['state'] += self.position_embedding(decoded['state'])
 
 
         # compute projection to the vocabulary
@@ -457,19 +473,3 @@ class InterleaveLearnedPosEmbTransformer(nn.Module):
     def embed(self, inputs, token_embedding):
         ''' Embed the given inputs '''
         return self.dropout(token_embedding(inputs) + self.position_embedding(inputs))
-
-    def encoder_layer_pos_embed(self, inputs, layer_num):
-        ''' Embed the given inputs '''
-        position_ids = [list(range(inputs.shape[1])) for i in range(inputs.shape[0])]
-        if layer_num == 0:
-            return self.dropout(self.encoder_layer_2_pos_embedding(torch.cuda.LongTensor(position_ids)))
-        else:
-            return self.dropout(self.encoder_layer_4_pos_embedding(torch.cuda.LongTensor(position_ids)))
-    
-    def decoder_layer_pos_embed(self, inputs, layer_num):
-        ''' Embed the given inputs '''
-        position_ids = [list(range(inputs.shape[1])) for i in range(inputs.shape[0])]
-        if layer_num == 0:
-            return self.dropout(self.decoder_layer_2_pos_embedding(torch.cuda.LongTensor(position_ids)))
-        else:
-            return self.dropout(self.decoder_layer_4_pos_embedding(torch.cuda.LongTensor(position_ids)))
