@@ -731,6 +731,13 @@ def parse_args(argv=None):
     model_groups['single_learned_pos_emb_transformer'] = add_new_transformer_args(parser)
     model_groups['multi_learned_pos_emb_transformer'] = add_new_transformer_args(parser)
     model_groups['interleave_learned_pos_emb_transformer'] = add_new_transformer_args(parser)
+    
+    # Multiple embeddings applied on encoder only models
+    model_groups['multi_learned_pos_emb_encoder_only_transformer'] = add_new_transformer_args(parser)
+    model_groups['interleave_learned_pos_emb_encoder_only_transformer'] = add_new_transformer_args(parser)
+    model_groups['interleave_fixed_pos_emb_encoder_only_transformer'] = add_new_transformer_args(parser)
+    model_groups['sandwiched_fixed_pos_emb_encoder_only_transformer'] = add_new_transformer_args(parser)
+    model_groups['multi_fixed_pos_emb_encoder_only_transformer'] = add_new_transformer_args(parser)
 
     subparsers = parser.add_subparsers()
     train_parser = subparsers.add_parser('train', help='Train a model')
